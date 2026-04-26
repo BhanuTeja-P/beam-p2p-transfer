@@ -4,13 +4,22 @@ export const SERVER_URL = import.meta.env.VITE_SERVER_URL || `${window.location.
 
 // ─── ICE Servers (STUN/TURN) ──────────────────────────────────────────────────
 const envIceServers = import.meta.env.VITE_ICE_SERVERS;
-export const ICE_SERVERS: RTCIceServer[] = envIceServers
-  ? JSON.parse(envIceServers)
-  : [
-      { urls: "stun:stun.l.google.com:19302" },
-      { urls: "stun:stun1.l.google.com:19302" },
-      { urls: "stun:stun2.l.google.com:19302" },
-    ];
+
+let defaultIceServers: RTCIceServer[] = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun2.l.google.com:19302" },
+];
+
+try {
+  if (envIceServers) {
+    defaultIceServers = JSON.parse(envIceServers);
+  }
+} catch (error) {
+  console.error("Failed to parse VITE_ICE_SERVERS. Falling back to Google STUN.", error);
+}
+
+export const ICE_SERVERS: RTCIceServer[] = defaultIceServers;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 export function formatBytes(bytes: number): string {
