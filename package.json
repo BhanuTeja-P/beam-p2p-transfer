@@ -1,0 +1,14 @@
+{
+  "name": "beam-p2p-transfer",
+  "version": "1.0.0",
+  "description": "Peer-to-peer file transfer app using WebRTC",
+  "scripts": {
+    "install:all": "npm install --prefix server && npm install --prefix client",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client",
+    "start:server": "npm start --prefix server"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
