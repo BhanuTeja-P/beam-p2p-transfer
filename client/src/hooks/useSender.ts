@@ -168,7 +168,44 @@ export function useSender() {
       channelRef.current = channel;
       channel.binaryType = "arraybuffer";
 
-      channel.onopen = () => {
+      channel.onopen = async () => {
+        // Check if connection is using TURN server
+        let isTurn = false;
+        try {
+          if (pcRef.current) {
+            const stats = await pcRef.current.getStats();
+            let activePairId: string | null = null;
+            
+            stats.forEach((stat) => {
+              if (
+                stat.type === "candidate-pair" &&
+                stat.state === "succeeded" &&
+                stat.nominated
+              ) {
+                activePairId = stat.localCandidateId;
+              }
+            });
+
+            if (activePairId) {
+              const localCandidate = stats.get(activePairId);
+              if (localCandidate && localCandidate.candidateType === "relay") {
+                isTurn = true;
+              }
+            }
+          }
+        } catch (e) {
+          console.error("Failed to get WebRTC stats", e);
+        }
+
+        const currentFile = fileRef.current;
+        if (isTurn && currentFile && currentFile.size > 50 * 1024 * 1024) {
+          setError("File too large. Max size for relayed connections is 50MB.");
+          setStatus("error");
+          socket.emit("peer-disconnected"); // Notify receiver
+          cleanup();
+          return;
+        }
+
         setStatus("transferring");
         sendFileOverChannel(channel, socket, roomCode);
       };
@@ -208,7 +245,7 @@ export function useSender() {
       setError("Receiver disconnected unexpectedly.");
       setStatus("error");
     });
-  }, [sendFileOverChannel]);
+  }, [sendFileOverChannel, cleanup]);
 
   const reset = useCallback(() => {
     cleanup();
