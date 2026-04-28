@@ -62,15 +62,6 @@ export function useSender() {
         elapsedTime: 0,
       });
 
-      channel.send(
-        JSON.stringify({
-          type: "meta",
-          name: f.name,
-          size: f.size,
-          fileType: f.type || "application/octet-stream",
-        })
-      );
-
       function sendChunk() {
         const currentFile = fileRef.current;
         if (!currentFile || channel.readyState !== "open") return;
@@ -206,8 +197,30 @@ export function useSender() {
           return;
         }
 
-        setStatus("transferring");
-        sendFileOverChannel(channel, socket, roomCode);
+        setStatus("connected");
+        
+        channel.onmessage = (e) => {
+          if (typeof e.data === 'string') {
+            try {
+              const parsed = JSON.parse(e.data);
+              if (parsed.type === "ready") {
+                setStatus("transferring");
+                sendFileOverChannel(channel, socket, roomCode);
+              }
+            } catch (_) {}
+          }
+        };
+
+        if (currentFile) {
+          channel.send(
+            JSON.stringify({
+              type: "meta",
+              name: currentFile.name,
+              size: currentFile.size,
+              fileType: currentFile.type || "application/octet-stream",
+            })
+          );
+        }
       };
 
       pc.onicecandidate = ({ candidate }) => {

@@ -20,9 +20,12 @@ export function useReceiver() {
   const [stats, setStats] = useState<TransferStats | null>(null);
   const [error, setError] = useState<string>("");
   const [receivedFile, setReceivedFile] = useState<ReceivedFile | null>(null);
+  const [fileMeta, setFileMeta] = useState<{name: string, size: number, fileType: string} | null>(null);
 
   const socketRef = useRef<Socket | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
+  const channelRef = useRef<RTCDataChannel | null>(null);
+  const streamRef = useRef<any>(null); // FileSystemWritableFileStream
 
   const cleanup = useCallback(() => {
     pcRef.current?.close();
@@ -78,10 +81,9 @@ export function useReceiver() {
         const channel = event.channel;
         channel.binaryType = "arraybuffer";
 
+        channelRef.current = channel;
         channel.onopen = () => {
-          setStatus("transferring");
-          startTime = Date.now();
-          lastTime = startTime;
+          // Waiting for meta message
         };
 
         channel.onmessage = (e) => {
@@ -93,16 +95,8 @@ export function useReceiver() {
               const parsed = JSON.parse(data);
               if (parsed.type === "meta") {
                 meta = { name: parsed.name, size: parsed.size, fileType: parsed.fileType };
-                setStats({
-                  fileName: parsed.name,
-                  fileSize: parsed.size,
-                  fileType: parsed.fileType,
-                  transferred: 0,
-                  speed: 0,
-                  progress: 0,
-                  startTime: Date.now(),
-                  elapsedTime: 0,
-                });
+                setFileMeta(meta);
+                setStatus("prompting");
               }
             } catch (_) {}
             return;
@@ -110,10 +104,19 @@ export function useReceiver() {
 
           // Binary chunk
           if (data instanceof ArrayBuffer) {
-            chunks.push(data);
             received += data.byteLength;
+            
+            if (streamRef.current) {
+              streamRef.current.write(data).catch((err: any) => console.error(err));
+            } else {
+              chunks.push(data);
+            }
 
             if (meta) {
+              if (startTime === 0) {
+                startTime = Date.now();
+                lastTime = startTime;
+              }
               const now = Date.now();
               const timeDelta = (now - lastTime) / 1000;
               const bytesDelta = received - lastBytes;
@@ -151,13 +154,18 @@ export function useReceiver() {
         };
       };
 
-      function finalizeFile(
+      async function finalizeFile(
         chunks: ArrayBuffer[],
         meta: { name: string; size: number; fileType: string }
       ) {
-        const blob = new Blob(chunks, { type: meta.fileType || "application/octet-stream" });
-        const url = URL.createObjectURL(blob);
-        setReceivedFile({ name: meta.name, size: meta.size, fileType: meta.fileType, blob, url });
+        if (streamRef.current) {
+          await streamRef.current.close();
+          setReceivedFile({ name: meta.name, size: meta.size, fileType: meta.fileType, blob: new Blob(), url: "" });
+        } else {
+          const blob = new Blob(chunks, { type: meta.fileType || "application/octet-stream" });
+          const url = URL.createObjectURL(blob);
+          setReceivedFile({ name: meta.name, size: meta.size, fileType: meta.fileType, blob, url });
+        }
         setStatus("complete");
       }
 
@@ -207,17 +215,52 @@ export function useReceiver() {
     }
     cleanup();
     setStatus("idle");
+    setFileMeta(null);
     setStats(null);
     setError("");
     setReceivedFile(null);
+    streamRef.current = null;
   }, [cleanup, receivedFile]);
+
+  const acceptTransfer = useCallback(async () => {
+    if (!fileMeta || !channelRef.current) return;
+    
+    if ('showSaveFilePicker' in window) {
+      try {
+        const handle = await (window as any).showSaveFilePicker({
+          suggestedName: fileMeta.name,
+        });
+        streamRef.current = await handle.createWritable();
+      } catch (err) {
+        setError("Transfer cancelled by user.");
+        setStatus("error");
+        cleanup();
+        return;
+      }
+    }
+    
+    setStatus("transferring");
+    channelRef.current.send(JSON.stringify({ type: "ready" }));
+    setStats({
+      fileName: fileMeta.name,
+      fileSize: fileMeta.size,
+      fileType: fileMeta.fileType,
+      transferred: 0,
+      speed: 0,
+      progress: 0,
+      startTime: Date.now(),
+      elapsedTime: 0,
+    });
+  }, [fileMeta, cleanup]);
 
   return {
     status,
+    fileMeta,
     stats,
     error,
     receivedFile,
     joinRoom,
+    acceptTransfer,
     reset,
   };
 }

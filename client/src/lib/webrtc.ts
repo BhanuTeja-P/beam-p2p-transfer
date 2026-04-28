@@ -46,6 +46,7 @@ export type ConnectionStatus =
   | "waiting"
   | "connecting"
   | "connected"
+  | "prompting"
   | "transferring"
   | "complete"
   | "error";
